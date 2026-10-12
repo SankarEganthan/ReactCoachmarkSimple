@@ -1,0 +1,57 @@
+/* Styles for the coach mark. Change the --coachmark-* variables to re-theme it. */
+
+.coachmark-root {
+  --coachmark-accent: #2563eb;
+  --coachmark-bg: #ffffff;
+  --coachmark-text: #1f2937;
+  --coachmark-muted: #6b7280;
+}
+
+/* The dark layer covers the whole screen and blocks clicks on the page. */
+.coachmark-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1000;
+}
+
+/* The popover sits above the overlay. top/left are set from JavaScript. */
+.coachmark-popover {
+  position: fixed;
+  z-index: 1001;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  padding: 16px;
+  background: var(--coachmark-bg);
+  color: var(--coachmark-text);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  font-family: system-ui, sans-serif;
+}
+
+.coachmark-title { margin: 0 0 6px; font-size: 16px; }
+.coachmark-text { margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: var(--coachmark-muted); }
+
+.coachmark-footer { display: flex; align-items: center; justify-content: space-between; }
+.coachmark-count { font-size: 12px; color: var(--coachmark-muted); }
+.coachmark-buttons { display: flex; gap: 8px; align-items: center; }
+
+.coachmark-buttons button {
+  padding: 6px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  cursor: pointer;
+}
+.coachmark-buttons .coachmark-primary {
+  background: var(--coachmark-accent);
+  border-color: var(--coachmark-accent);
+  color: white;
+}
+.coachmark-buttons .coachmark-link {
+  border: none;
+  background: none;
+  color: var(--coachmark-muted);
+}
