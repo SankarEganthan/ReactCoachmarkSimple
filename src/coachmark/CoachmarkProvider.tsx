@@ -10,8 +10,8 @@
 // Each page then calls  useTour('its-name')  (see useTour.ts).
 // The provider never changes the page: tours only run on the page the user is on.
 //
-// A step is only shown if its element is on the page. A step whose element is missing
-// is skipped. If NO element of the tour exists, nothing is shown at all.
+// Only the steps whose element is on the screen are shown, and only those are counted
+// ("1 of 2"). If no element exists, nothing is shown at all.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -21,6 +21,7 @@ import CoachmarkOverlay from './CoachmarkOverlay'
 import CoachmarkPopover from './CoachmarkPopover'
 import { saveSeenVersion, shouldAutoStart } from './tourStorage'
 import type { Tour } from './types'
+import { useAvailableSteps } from './useAvailableSteps'
 import { useKeyboardNav } from './useKeyboardNav'
 import { useTargetRect } from './useTargetRect'
 import './coachmark.css'
@@ -34,6 +35,9 @@ export default function CoachmarkProvider({ tours, children }: CoachmarkProvider
   const [tour, setTour] = useState<Tour | null>(null) // the tour of the page on screen
   const [isRunning, setIsRunning] = useState(false)
   const [stepIndex, setStepIndex] = useState(0)
+  // true  = the tour started by itself when the page opened: wait for late-loading elements
+  // false = the user clicked "?": the page is already loaded, so do not make them wait
+  const [waitForAll, setWaitForAll] = useState(true)
 
   // Remember which element had the keyboard focus (the "?" button), so we can give it back.
   const focusBeforeTour = useRef<HTMLElement | null>(null)
@@ -42,7 +46,11 @@ export default function CoachmarkProvider({ tours, children }: CoachmarkProvider
   // Which way the user is going, so a missing step is skipped in the same direction.
   const direction = useRef<'forward' | 'back'>('forward')
 
-  const step = tour ? tour.steps[stepIndex] : null
+  // The steps that can be shown on this screen (null while we are still checking).
+  // If there are none, the tour closes quietly and is NOT marked as seen.
+  const steps = useAvailableSteps(tour, isRunning, waitForAll, closeQuietly)
+
+  const step = steps ? steps[stepIndex] : null
   const rect = useTargetRect(isRunning && step ? step.target : '', skipMissingStep)
 
   // A page calls this (through useTour) when it appears, with the NAME of its tour.
@@ -59,6 +67,7 @@ export default function CoachmarkProvider({ tours, children }: CoachmarkProvider
       setStepIndex(0)
       hasShownAStep.current = false
       direction.current = 'forward'
+      setWaitForAll(true) // the page has just opened: its data may still be loading
       setIsRunning(shouldAutoStart(newTour))
 
       // Cleanup: the page went away, so its tour goes away too.
@@ -75,6 +84,7 @@ export default function CoachmarkProvider({ tours, children }: CoachmarkProvider
     focusBeforeTour.current = document.activeElement as HTMLElement | null
     hasShownAStep.current = false
     direction.current = 'forward'
+    setWaitForAll(false) // the user asked for it: start now with what is on the screen
     setStepIndex(0)
     setIsRunning(true)
   }
@@ -86,10 +96,15 @@ export default function CoachmarkProvider({ tours, children }: CoachmarkProvider
     focusBeforeTour.current?.focus()
   }
 
+  // Close without remembering anything (used when there is nothing to show).
+  function closeQuietly() {
+    setIsRunning(false)
+  }
+
   function next() {
-    if (!tour) return
+    if (!steps) return
     direction.current = 'forward'
-    setStepIndex((index) => Math.min(index + 1, tour.steps.length - 1))
+    setStepIndex((index) => Math.min(index + 1, steps.length - 1))
   }
 
   function back() {
@@ -97,20 +112,18 @@ export default function CoachmarkProvider({ tours, children }: CoachmarkProvider
     setStepIndex((index) => Math.max(index - 1, 0))
   }
 
-  // Called by useTargetRect when the element of the current step is NOT on the page.
-  // We skip the step, in the direction the user was going.
+  // Safety net, called by useTargetRect: the element of the current step disappeared
+  // after we had found it. Skip the step, in the direction the user was going.
   function skipMissingStep() {
-    if (!tour) return
-    const lastIndex = tour.steps.length - 1
+    if (!tour || !steps) return
+    const lastIndex = steps.length - 1
 
     if (direction.current === 'back' && stepIndex > 0) {
-      setStepIndex(stepIndex - 1) // keep going back
+      setStepIndex(stepIndex - 1)
     } else if (stepIndex < lastIndex) {
       direction.current = 'forward'
-      setStepIndex(stepIndex + 1) // keep going forward
+      setStepIndex(stepIndex + 1)
     } else {
-      // No more steps. Close quietly. Only remember the tour as "seen" if the
-      // user actually saw something; otherwise it will try again next time.
       if (hasShownAStep.current) saveSeenVersion(tour)
       setIsRunning(false)
     }
@@ -132,7 +145,7 @@ export default function CoachmarkProvider({ tours, children }: CoachmarkProvider
       {/* A portal draws these directly in <body>, so no parent's CSS can hide them.
           We draw only when the element of the step was found (rect is not null). */}
       {isRunning &&
-        tour &&
+        steps &&
         step &&
         rect &&
         createPortal(
@@ -141,7 +154,7 @@ export default function CoachmarkProvider({ tours, children }: CoachmarkProvider
             <CoachmarkPopover
               step={step}
               stepIndex={stepIndex}
-              total={tour.steps.length}
+              total={steps.length}
               targetRect={rect}
               onNext={next}
               onBack={back}

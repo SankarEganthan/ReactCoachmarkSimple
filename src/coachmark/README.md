@@ -104,8 +104,18 @@ has no tour, so you can disable the button there.
 - User clicks `?` -> the tour of the current page starts (always).
 - User leaves the page -> the tour closes (and is not marked as seen).
 - Every page has its own tour, id, version and cookie.
-- A step is shown only if its element is on the page. The tour waits up to 3 seconds for
-  an element that is still loading; if it never appears, that step is **skipped**.
+- A step is shown only if its element is on the page, and **only those steps are counted**.
+  A tour with 5 steps in `tours.ts` where only 2 elements are on the screen shows
+  "1 of 2", not "1 of 5".
+- When the tour starts, it checks the elements of all its steps. All of them are there ->
+  it starts immediately. If some are missing, it depends on how the tour started:
+  - **The user clicked `?`:** it starts immediately with the steps whose element is on the
+    screen. (The page has been open for a while, so a missing element is not coming.)
+    It only waits if not one element exists yet.
+  - **The tour started by itself when the page opened:** it waits up to 3 seconds for the
+    missing elements, because they may still be loading (for example after an API call),
+    then starts with the steps whose element exists. This wait happens once per user per
+    page, on the first visit.
 - If **none** of the elements of a tour exist, nothing is shown at all, and the tour is not
   marked as seen, so it tries again the next time the page opens.
 
@@ -209,7 +219,8 @@ Change them, or override the `.coachmark-popover` classes in your own CSS.
 | `useCoachmark.ts` | Hook for buttons: `start`, `stop`, `isRunning`, `hasTour`. |
 | `CoachmarkOverlay.tsx` | The dark layer with a hole around the target. |
 | `CoachmarkPopover.tsx` | The box with title, text and buttons. |
-| `useTargetRect.ts` | Finds the element, waits for it if it is not there yet, follows it. |
+| `useAvailableSteps.ts` | Works out which steps have an element on this screen (for the "1 of N" counter). |
+| `useTargetRect.ts` | Finds the element of the current step, scrolls to it, follows it. |
 | `useKeyboardNav.ts` | Arrow keys and Esc. |
 | `position.ts` | Decides where the box goes. |
 | `cookie.ts`, `tourStorage.ts` | Save and read the seen version. |
@@ -217,8 +228,14 @@ Change them, or override the `.coachmark-popover` classes in your own CSS.
 
 ## Troubleshooting
 
+- **The counter is lower than the number of steps in `tours.ts`.**
+  At least one step's element is not on the screen, so that step is left out.
+- **On the first visit, the tour takes up to 3 seconds to appear.**
+  At least one step's element is not on the page, so the tour waited for it in case it was
+  still loading. Fix the `target`, or remove the step, to make it instant. (A click on `?`
+  never waits.)
 - **A step (or the whole tour) does not show up.**
-  Its element was not found within 3 seconds, so the step was skipped. Check that the
+  Its element was not found within 3 seconds, so the step was left out. Check that the
   element is really rendered on that page (not hidden by a condition), and that the
   `target` selector in `tours.ts` matches it exactly.
 - **The tour does not start by itself.**

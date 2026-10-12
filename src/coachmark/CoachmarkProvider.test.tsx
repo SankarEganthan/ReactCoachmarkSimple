@@ -1,5 +1,6 @@
-// Tests for the coach mark as a user sees it: a page registers its tour, the tour starts
-// on a first visit, the "?" button, the keyboard, and waiting for late elements.
+// Tests for the coach mark as a user sees it: a page registers its tour by name, the tour
+// starts on a first visit, the "?" button, the keyboard, the "1 of N" counter, and what
+// happens when elements are late or missing.
 // Run with: npm test
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -10,13 +11,15 @@ import type { Tour } from './types'
 import { useCoachmark } from './useCoachmark'
 import { useTour } from './useTour'
 
+// The fake page below always contains the elements "one" and "two".
+
+// Both elements exist.
 const tour: Tour = {
   id: 'test',
   version: 1,
   steps: [
     { target: '[data-tour="one"]', title: 'Step one', text: 'First' },
     { target: '[data-tour="two"]', title: 'Step two', text: 'Second' },
-    { target: '[data-tour="late"]', title: 'Step three', text: 'Third' },
   ],
 }
 
@@ -26,7 +29,18 @@ const otherTour: Tour = {
   steps: [{ target: '[data-tour="one"]', title: 'Other page step', text: 'Hello' }],
 }
 
-// The step "Missing step" points at an element that is not on the page.
+// The third element ("late") is not in the page. A test may add it after a while.
+const lateTour: Tour = {
+  id: 'test',
+  version: 1,
+  steps: [
+    { target: '[data-tour="one"]', title: 'Step one', text: 'a' },
+    { target: '[data-tour="two"]', title: 'Step two', text: 'b' },
+    { target: '[data-tour="late"]', title: 'Step three', text: 'c' },
+  ],
+}
+
+// 3 steps in the tour, but the middle element is never on the page.
 const gapTour: Tour = {
   id: 'test',
   version: 1,
@@ -37,7 +51,7 @@ const gapTour: Tour = {
   ],
 }
 
-// A tour where no element exists at all.
+// No element exists at all.
 const ghostTour: Tour = {
   id: 'ghost',
   version: 1,
@@ -48,7 +62,7 @@ const ghostTour: Tour = {
 }
 
 // The list the provider receives, found by name (like coachmark/tours.ts in the real app).
-const tours = { test: tour, other: otherTour, gap: gapTour, ghost: ghostTour }
+const tours = { test: tour, other: otherTour, late: lateTour, gap: gapTour, ghost: ghostTour }
 
 // Like the navbar: a "?" button that starts the tour of the current page.
 function HelpButton() {
@@ -60,7 +74,7 @@ function HelpButton() {
   )
 }
 
-// A fake page: it registers its tour and shows two elements the tour can point at.
+// A fake page: it registers its tour by name and shows two elements the tour can point at.
 function Page({ name }: { name: string }) {
   useTour(name)
   return (
@@ -108,7 +122,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
-  // The "late element" test adds an element by hand; remove it so it cannot leak into other tests.
+  // Some tests add an element by hand; remove it so it cannot leak into other tests.
   document.querySelectorAll('[data-tour="late"]').forEach((element) => element.remove())
   vi.useRealTimers()
   clearCookies()
@@ -238,16 +252,53 @@ describe('CoachmarkProvider', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(document.activeElement).toBe(startButton)
   })
+})
 
-  it('waits for an element that appears late', () => {
-    vi.useFakeTimers()
+describe('the "1 of N" counter counts only the steps found on the screen', () => {
+  it('counts all steps when every element is on the page', () => {
     renderPage()
     fireEvent.click(screen.getByText('start'))
-    fireEvent.click(screen.getByText('Next'))
-    fireEvent.click(screen.getByText('Next')) // step three: its target does not exist yet
+    expect(screen.getByText('1 of 2')).toBeTruthy()
 
-    // Still looking for the target: no popover yet.
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.getByText('2 of 2')).toBeTruthy()
+  })
+
+  it('"?" click: starts at once with the steps that exist, without waiting', () => {
+    vi.useFakeTimers()
+    renderPage('gap') // 3 steps, the middle element is not on the page
+    fireEvent.click(screen.getByText('start'))
+
+    // No waiting: the box is there right away.
+    expect(screen.getByText('Step one')).toBeTruthy()
+    expect(screen.getByText('1 of 2')).toBeTruthy() // not "1 of 3"
+
+    fireEvent.click(screen.getByText('Next'))
+    expect(screen.queryByText('Missing step')).toBeNull()
+    expect(screen.getByText('Step two')).toBeTruthy()
+    expect(screen.getByText('2 of 2')).toBeTruthy()
+  })
+
+  it('auto-start: waits for late elements, then counts only the ones that exist', () => {
+    vi.useFakeTimers()
+    clearCookies() // first visit: the tour starts by itself
+    renderPage('gap')
+
+    // While it waits for the missing element (it may still be loading), nothing is shown.
     expect(screen.queryByRole('dialog')).toBeNull()
+    act(() => {
+      vi.advanceTimersByTime(3500)
+    })
+
+    expect(screen.getByText('Step one')).toBeTruthy()
+    expect(screen.getByText('1 of 2')).toBeTruthy()
+  })
+
+  it('auto-start: counts the late element too, when it appears in time', () => {
+    vi.useFakeTimers()
+    clearCookies()
+    renderPage('late')
+    expect(screen.queryByRole('dialog')).toBeNull() // still waiting for the third element
 
     // The element shows up after 500 ms (like data arriving from an API).
     act(() => {
@@ -258,56 +309,54 @@ describe('CoachmarkProvider', () => {
       vi.advanceTimersByTime(200)
     })
 
-    expect(screen.getByText('Step three')).toBeTruthy()
+    expect(screen.getByText('Step one')).toBeTruthy()
+    expect(screen.getByText('1 of 3')).toBeTruthy()
   })
 
-})
-
-describe('elements that are not on the page', () => {
-  it('shows nothing while it waits for an element that is missing', () => {
+  it('auto-start: stops counting an element that never appears, and finishes normally', () => {
     vi.useFakeTimers()
-    renderPage()
-    fireEvent.click(screen.getByText('start'))
-    fireEvent.click(screen.getByText('Next'))
-    fireEvent.click(screen.getByText('Next')) // step three: its element never appears
+    clearCookies()
+    renderPage('late')
 
     act(() => {
-      vi.advanceTimersByTime(1000) // still inside the 3 second waiting time
+      vi.advanceTimersByTime(3500) // the third element never shows up
     })
-    expect(screen.queryByRole('dialog')).toBeNull() // no box in the middle of the screen
+    expect(screen.getByText('1 of 2')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Done')) // step two is the last one now
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.cookie).toContain('coachmark_test=1')
   })
 
-  it('skips a step whose element is missing and shows the next one', () => {
+  it('"?" click: waits only if not one element exists yet (the page may still be loading)', () => {
     vi.useFakeTimers()
-    renderPage('gap')
+    renderPage('ghost')
     fireEvent.click(screen.getByText('start'))
-    fireEvent.click(screen.getByText('Next'))
-
-    act(() => {
-      vi.advanceTimersByTime(3500) // the missing element is given up on
-    })
-
-    expect(screen.queryByText('Missing step')).toBeNull()
-    expect(screen.getByText('Step two')).toBeTruthy()
-  })
-
-  it('closes quietly when the last steps are missing, and remembers the tour', () => {
-    vi.useFakeTimers()
-    renderPage()
-    fireEvent.click(screen.getByText('start'))
-    fireEvent.click(screen.getByText('Next'))
-    fireEvent.click(screen.getByText('Next')) // step three is missing and is the last step
+    expect(screen.queryByRole('dialog')).toBeNull()
 
     act(() => {
       vi.advanceTimersByTime(3500)
     })
+    expect(screen.queryByRole('dialog')).toBeNull() // still nothing: no element ever appeared
+  })
+})
+
+describe('elements that are not on the page', () => {
+  it('shows nothing, and does not mark the tour as seen, if no element exists', () => {
+    vi.useFakeTimers()
+    clearCookies()
+    renderPage('ghost') // first visit: it tries to start by itself
+
+    act(() => {
+      vi.advanceTimersByTime(10000)
+    })
 
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.cookie).toContain('coachmark_test=1') // the user did see steps one and two
+    expect(document.cookie).not.toContain('coachmark_ghost') // it will try again next time
   })
 
   it('does not show an old highlight when the tour is started again and the element is gone', () => {
-    vi.useFakeTimers()
     renderPage()
     fireEvent.click(screen.getByText('start'))
     expect(screen.getByText('Step one')).toBeTruthy()
@@ -317,19 +366,8 @@ describe('elements that are not on the page', () => {
     document.querySelector('[data-tour="one"]')?.removeAttribute('data-tour')
     fireEvent.click(screen.getByText('start'))
 
-    expect(screen.queryByText('Step one')).toBeNull()
-  })
-
-  it('shows nothing, and does not mark the tour as seen, if no element exists', () => {
-    vi.useFakeTimers()
-    clearCookies()
-    renderPage('ghost') // first visit: it tries to start by itself
-
-    act(() => {
-      vi.advanceTimersByTime(10000) // enough to give up on both steps
-    })
-
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.cookie).not.toContain('coachmark_ghost') // it will try again next time
+    expect(screen.queryByText('Step one')).toBeNull() // no stale highlight of the old element
+    expect(screen.getByText('Step two')).toBeTruthy()
+    expect(screen.getByText('1 of 1')).toBeTruthy()
   })
 })
