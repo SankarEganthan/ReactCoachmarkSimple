@@ -9,10 +9,9 @@ import { useAppDispatch, useAppSelector } from '../store/hooks'
 import { loadPosts } from '../store/postsSlice'
 import { loadTodos } from '../store/todosSlice'
 import { loadUsers } from '../store/usersSlice'
-import { dashboardTour } from '../tour/tours'
 
 export default function Dashboard() {
-  useTour(dashboardTour) // this page's coach mark tour
+  useTour('dashboard') // the steps of this page's tour are in coachmark/tours.ts
 
   const dispatch = useAppDispatch()
 
@@ -43,14 +42,14 @@ export default function Dashboard() {
     <div>
       <h1>Dashboard</h1>
 
-      <div className="stat-row" data-tour="stats">
+      <div className="stat-row">
         <StatCard label="Posts" value={posts.items.length} />
         <StatCard label="Users" value={users.items.length} />
         <StatCard label="Todos done" value={`${doneTodos} / ${todos.items.length}`} />
       </div>
 
       <h2>Latest posts</h2>
-      <ul className="simple-list" data-tour="latest-posts">
+      <ul className="simple-list">
         {posts.items.slice(0, 5).map((post) => (
           <li key={post.id}>{post.title}</li>
         ))}

@@ -5,10 +5,9 @@ import { useEffect } from 'react'
 import { useTour } from '../coachmark'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
 import { loadUsers } from '../store/usersSlice'
-import { usersTour } from '../tour/tours'
 
 export default function Users() {
-  useTour(usersTour) // this page's coach mark tour
+  useTour('users') // the steps of this page's tour are in coachmark/tours.ts
 
   const dispatch = useAppDispatch()
   const { items, status, error } = useAppSelector((state) => state.users)
@@ -24,7 +23,7 @@ export default function Users() {
     <div>
       <h1>Users</h1>
 
-      <table className="table" data-tour="users-table">
+      <table className="table">
         <thead>
           <tr>
             <th>Name</th>

@@ -27,14 +27,14 @@ Open http://localhost:5173.
 
 ## How the tour behaves
 
-Every page has its own small tour (see [`src/tour/tours.ts`](src/tour/tours.ts)).
+Every page has its own small tour. All tours live in [`src/coachmark/tours.ts`](src/coachmark/tours.ts); each page only calls `useTour('its-name')`.
 
 - **First visit to a page:** that page's tour starts by itself.
 - When you finish or skip it, the app saves the tour **version** in a cookie
   (`coachmark_dashboard`, `coachmark_posts`, `coachmark_users`).
 - **Next visits:** it does not start. Click the **`?`** button on the right of the navbar
   to see the tour of the page you are on.
-- **Tour updated:** raise `version` of that tour in `src/tour/tours.ts` and everyone sees it once more.
+- **Tour updated:** raise `version` of that tour in `src/coachmark/tours.ts` and everyone sees it once more.
 - **The tour never changes the page.** It only runs on the page the user opened.
 - **To test the first visit again:** delete the cookie (DevTools -> Application -> Cookies) and reload.
 
@@ -46,8 +46,7 @@ src/
   store/       Redux Toolkit: store, hooks, one slice per resource
   pages/       Dashboard, Posts, Users
   components/  Navbar (with the ? button), StatCard
-  tour/        tours.ts: one tour per page (just data)
-  coachmark/   THE REUSABLE PART: copy this folder into another project
+  coachmark/   THE REUSABLE PART: copy this folder into another project (includes tours.ts)
 ```
 
 ## Reuse the coach mark in another project

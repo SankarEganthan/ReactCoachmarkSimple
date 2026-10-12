@@ -12,64 +12,75 @@ at a time, and shows a box with a title, text and Back / Next / Skip buttons.
 
 ## Copy it into another project
 
+Everything is inside this folder, **including the text and the elements of every tour**.
+Your pages only get one line.
+
 1. **Copy this whole folder** (`coachmark/`) into your project's `src/`.
    Delete the `*.test.ts(x)` files if you do not use Vitest.
-2. **Wrap your app once** with `<CoachmarkProvider>`.
-3. **In each page:** mark elements with `data-tour="..."`, write a tour, call `useTour(tour)`.
-4. **Add a `?` button** that calls `start()`.
+2. **Edit `tours.ts`** (inside the folder): one entry per page, with its steps.
+3. **Wrap your app once** with `<CoachmarkProvider tours={tours}>`.
+4. **In each page, add one line:** `useTour('page-name')`.
+5. **Add a `?` button** that calls `start()`.
 
-That is all. Nothing else needs to be installed.
+That is all. Nothing else needs to be installed, and the pages are not marked with
+extra attributes.
 
-### 1. Wrap your app (once)
+### 1. Edit `tours.ts`
+
+```ts
+// coachmark/tours.ts
+export const tours: Record<string, Tour> = {
+  orders: {                 // <- the name the page uses: useTour('orders')
+    id: 'orders',           // names the cookie: coachmark_orders (make it unique)
+    version: 1,             // raise this when you change the tour
+    steps: [
+      {
+        target: '.search-box',          // CSS selector of an element that is already in the page
+        title: 'Search',
+        text: 'Type here to filter your orders.',
+        placement: 'bottom',            // optional: top | bottom | left | right
+      },
+      {
+        target: '#orders-table',
+        title: 'Orders',
+        text: 'All your orders are listed here.',
+      },
+    ],
+  },
+}
+```
+
+**How to choose a `target`:** it is any CSS selector for an element that already exists in
+the page: a class (`.search-box`), an id (`#orders-table`), a tag (`h1`), or a combination
+(`.card-list > li:first-child`). Open the browser DevTools, inspect the element, and copy
+its class or id. Prefer an id or a class that is specific to that element.
+
+If the class names in your project change often (or are generated, like CSS Modules or
+Tailwind), add a stable `data-tour="orders-table"` attribute to the element and use
+`'[data-tour="orders-table"]'` as the target. This is optional.
+
+### 2. Wrap your app (once)
 
 ```tsx
-import { CoachmarkProvider } from './coachmark'
+import { CoachmarkProvider, tours } from './coachmark'
 
-<CoachmarkProvider>
+<CoachmarkProvider tours={tours}>
   <App />
 </CoachmarkProvider>
 ```
 
-### 2. Mark the elements of a page
-
-```tsx
-<input data-tour="search" />
-<table data-tour="report-table"> ... </table>
-```
-
-### 3. Write the tour of the page and use it
-
-A tour is a plain object. Declare it **outside** the component (a constant).
+### 3. One line in each page
 
 ```tsx
 import { useTour } from '../coachmark'
-import type { Tour } from '../coachmark'
 
-const reportsTour: Tour = {
-  id: 'reports',   // names the cookie: coachmark_reports
-  version: 1,      // raise this when you change the tour
-  steps: [
-    {
-      target: '[data-tour="search"]',   // CSS selector of the element
-      title: 'Search',
-      text: 'Type here to filter the reports.',
-      placement: 'bottom',              // optional: top | bottom | left | right
-    },
-    {
-      target: '[data-tour="report-table"]',
-      title: 'Reports',
-      text: 'Your reports are listed here.',
-    },
-  ],
-}
-
-function ReportsPage() {
-  useTour(reportsTour)   // <- one line per page
+function OrdersPage() {
+  useTour('orders')   // <- the name from tours.ts. Put it at the top, before any early return.
   return ( ... )
 }
 ```
 
-Put `useTour(...)` at the top of the component, before any early `return`.
+If the name does not exist in `tours.ts`, you get a warning in the browser console.
 
 ### 4. Add the `?` button
 
@@ -93,6 +104,10 @@ has no tour, so you can disable the button there.
 - User clicks `?` -> the tour of the current page starts (always).
 - User leaves the page -> the tour closes (and is not marked as seen).
 - Every page has its own tour, id, version and cookie.
+- A step is shown only if its element is on the page. The tour waits up to 3 seconds for
+  an element that is still loading; if it never appears, that step is **skipped**.
+- If **none** of the elements of a tour exist, nothing is shown at all, and the tour is not
+  marked as seen, so it tries again the next time the page opens.
 
 ## How the cookie works
 
@@ -119,13 +134,19 @@ Good to know:
 
 ## API
 
-### `<CoachmarkProvider>`
+### `<CoachmarkProvider tours={tours}>`
 
-Takes only `children`. Put it once around your app.
+| Prop | Type | |
+|---|---|---|
+| `tours` | `Record<string, Tour>` | Required. All tours by name. Import it from `tours.ts`. |
+| `children` | `ReactNode` | Your app. |
 
-### `useTour(tour)`
+Put it once around your app.
 
-Call it in a page. Registers the tour of that page (see "How it behaves").
+### `useTour(name)`
+
+Call it in a page with the name of its tour in `tours.ts`
+(see "How it behaves").
 
 ### `useCoachmark()`
 
@@ -180,6 +201,7 @@ Change them, or override the `.coachmark-popover` classes in your own CSS.
 | File | Job |
 |---|---|
 | `index.ts` | The only file you import from. |
+| `tours.ts` | **The only file you edit:** all tours, with their steps and targets. |
 | `types.ts` | `Tour`, `TourStep`, `Placement`, `Rect`. |
 | `CoachmarkProvider.tsx` | Keeps the state (current tour, running, current step) and draws the tour. |
 | `CoachmarkContext.ts` | The shared box the provider and the hooks use. |
@@ -195,18 +217,24 @@ Change them, or override the `.coachmark-popover` classes in your own CSS.
 
 ## Troubleshooting
 
-- **The box appears in the middle of the screen, with no highlight.**
-  The element was not found within 3 seconds. Check that `data-tour="..."` is on the
-  element and that it matches the `target` selector exactly.
+- **A step (or the whole tour) does not show up.**
+  Its element was not found within 3 seconds, so the step was skipped. Check that the
+  element is really rendered on that page (not hidden by a condition), and that the
+  `target` selector in `tours.ts` matches it exactly.
 - **The tour does not start by itself.**
   The cookie `coachmark_<id>` already has the same or a higher version. Delete it, or
   raise the tour `version`.
 - **The `?` button is disabled.**
-  The current page does not call `useTour(...)`.
+  The current page does not call `useTour('...')`, or the name is not in `tours.ts`
+  (check the browser console for a warning).
+- **A step highlights the wrong element, or is skipped.**
+  The `target` selector matches nothing, or matches another element first. Test it in the
+  DevTools console with `document.querySelector('your selector')`.
 - **`useCoachmark must be used inside <CoachmarkProvider>`.**
   The component that calls the hook is outside the provider.
 - **The tour restarts every time the page re-renders.**
-  The tour object is created inside the component. Declare it outside, as a constant.
+  The `tours` object passed to the provider is created inside a component. Keep it a
+  constant in `tours.ts`.
 - **The tour is hidden behind something.**
   The overlay uses `z-index: 1000` and the box `1001`. If your app has higher values,
   raise them in `coachmark.css`.

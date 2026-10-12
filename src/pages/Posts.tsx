@@ -6,10 +6,9 @@ import { useEffect, useState } from 'react'
 import { useTour } from '../coachmark'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
 import { loadPosts } from '../store/postsSlice'
-import { postsTour } from '../tour/tours'
 
 export default function Posts() {
-  useTour(postsTour) // this page's coach mark tour
+  useTour('posts') // the steps of this page's tour are in coachmark/tours.ts
 
   const dispatch = useAppDispatch()
   const { items, status, error } = useAppSelector((state) => state.posts)
@@ -33,7 +32,6 @@ export default function Posts() {
 
       <input
         className="search-box"
-        data-tour="posts-search"
         placeholder="Search posts..."
         value={search}
         onChange={(event) => setSearch(event.target.value)}
@@ -42,9 +40,8 @@ export default function Posts() {
       <p>{visiblePosts.length} posts</p>
 
       <ul className="card-list">
-        {visiblePosts.map((post, index) => (
-          // Only the first post gets a data-tour name, so the tour highlights just one card.
-          <li key={post.id} className="card" data-tour={index === 0 ? 'first-post' : undefined}>
+        {visiblePosts.map((post) => (
+          <li key={post.id} className="card">
             <h3>{post.title}</h3>
             <p>{post.body}</p>
           </li>

@@ -26,6 +26,30 @@ const otherTour: Tour = {
   steps: [{ target: '[data-tour="one"]', title: 'Other page step', text: 'Hello' }],
 }
 
+// The step "Missing step" points at an element that is not on the page.
+const gapTour: Tour = {
+  id: 'test',
+  version: 1,
+  steps: [
+    { target: '[data-tour="one"]', title: 'Step one', text: 'a' },
+    { target: '[data-tour="missing"]', title: 'Missing step', text: 'b' },
+    { target: '[data-tour="two"]', title: 'Step two', text: 'c' },
+  ],
+}
+
+// A tour where no element exists at all.
+const ghostTour: Tour = {
+  id: 'ghost',
+  version: 1,
+  steps: [
+    { target: '[data-tour="nope-1"]', title: 'Ghost one', text: 'a' },
+    { target: '[data-tour="nope-2"]', title: 'Ghost two', text: 'b' },
+  ],
+}
+
+// The list the provider receives, found by name (like coachmark/tours.ts in the real app).
+const tours = { test: tour, other: otherTour, gap: gapTour, ghost: ghostTour }
+
 // Like the navbar: a "?" button that starts the tour of the current page.
 function HelpButton() {
   const { start, hasTour } = useCoachmark()
@@ -37,8 +61,8 @@ function HelpButton() {
 }
 
 // A fake page: it registers its tour and shows two elements the tour can point at.
-function Page({ pageTour }: { pageTour: Tour }) {
-  useTour(pageTour)
+function Page({ name }: { name: string }) {
+  useTour(name)
   return (
     <>
       <div data-tour="one">one</div>
@@ -49,17 +73,17 @@ function Page({ pageTour }: { pageTour: Tour }) {
 
 function App({ children }: { children?: ReactNode }) {
   return (
-    <CoachmarkProvider>
+    <CoachmarkProvider tours={tours}>
       <HelpButton />
       {children}
     </CoachmarkProvider>
   )
 }
 
-function renderPage(pageTour: Tour = tour) {
+function renderPage(name = 'test') {
   return render(
     <App>
-      <Page pageTour={pageTour} />
+      <Page name={name} />
     </App>,
   )
 }
@@ -70,7 +94,7 @@ function markTourAsSeen(id = 'test', version = 1) {
 }
 
 function clearCookies() {
-  for (const id of ['test', 'other']) {
+  for (const id of ['test', 'other', 'ghost']) {
     document.cookie = `coachmark_${id}=; path=/; max-age=0`
   }
 }
@@ -84,6 +108,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  // The "late element" test adds an element by hand; remove it so it cannot leak into other tests.
+  document.querySelectorAll('[data-tour="late"]').forEach((element) => element.remove())
   vi.useRealTimers()
   clearCookies()
 })
@@ -130,9 +156,19 @@ describe('one tour per page', () => {
     expect((screen.getByText('start') as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('warns and shows nothing when the page asks for a tour name that does not exist', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderPage('typo')
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"typo"'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect((screen.getByText('start') as HTMLButtonElement).disabled).toBe(true)
+    warn.mockRestore()
+  })
+
   it('each page uses its own cookie: seeing one tour does not hide another', () => {
     markTourAsSeen('test') // "test" page was seen, "other" page was not
-    renderPage(otherTour)
+    renderPage('other')
     expect(screen.getByText('Other page step')).toBeTruthy()
   })
 
@@ -150,7 +186,7 @@ describe('one tour per page', () => {
     const view = renderPage()
     view.rerender(
       <App>
-        <Page pageTour={otherTour} />
+        <Page name="other" />
       </App>,
     )
     fireEvent.click(screen.getByText('start'))
@@ -225,17 +261,75 @@ describe('CoachmarkProvider', () => {
     expect(screen.getByText('Step three')).toBeTruthy()
   })
 
-  it('still shows the popover (centered) if the element never appears', () => {
+})
+
+describe('elements that are not on the page', () => {
+  it('shows nothing while it waits for an element that is missing', () => {
     vi.useFakeTimers()
     renderPage()
     fireEvent.click(screen.getByText('start'))
     fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next')) // step three: its element never appears
+
+    act(() => {
+      vi.advanceTimersByTime(1000) // still inside the 3 second waiting time
+    })
+    expect(screen.queryByRole('dialog')).toBeNull() // no box in the middle of the screen
+  })
+
+  it('skips a step whose element is missing and shows the next one', () => {
+    vi.useFakeTimers()
+    renderPage('gap')
+    fireEvent.click(screen.getByText('start'))
     fireEvent.click(screen.getByText('Next'))
 
     act(() => {
-      vi.advanceTimersByTime(3500) // longer than the 3 second limit
+      vi.advanceTimersByTime(3500) // the missing element is given up on
     })
 
-    expect(screen.getByText('Step three')).toBeTruthy()
+    expect(screen.queryByText('Missing step')).toBeNull()
+    expect(screen.getByText('Step two')).toBeTruthy()
+  })
+
+  it('closes quietly when the last steps are missing, and remembers the tour', () => {
+    vi.useFakeTimers()
+    renderPage()
+    fireEvent.click(screen.getByText('start'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next')) // step three is missing and is the last step
+
+    act(() => {
+      vi.advanceTimersByTime(3500)
+    })
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.cookie).toContain('coachmark_test=1') // the user did see steps one and two
+  })
+
+  it('does not show an old highlight when the tour is started again and the element is gone', () => {
+    vi.useFakeTimers()
+    renderPage()
+    fireEvent.click(screen.getByText('start'))
+    expect(screen.getByText('Step one')).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    // The element of step one disappears, then the user starts the tour again.
+    document.querySelector('[data-tour="one"]')?.removeAttribute('data-tour')
+    fireEvent.click(screen.getByText('start'))
+
+    expect(screen.queryByText('Step one')).toBeNull()
+  })
+
+  it('shows nothing, and does not mark the tour as seen, if no element exists', () => {
+    vi.useFakeTimers()
+    clearCookies()
+    renderPage('ghost') // first visit: it tries to start by itself
+
+    act(() => {
+      vi.advanceTimersByTime(10000) // enough to give up on both steps
+    })
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.cookie).not.toContain('coachmark_ghost') // it will try again next time
   })
 })
